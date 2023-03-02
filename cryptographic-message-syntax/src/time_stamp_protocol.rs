@@ -153,11 +153,11 @@ impl From<TimeStampResp> for TimeStampResponse {
 }
 
 /// Send a [TimeStampReq] to a server via HTTP.
-pub fn time_stamp_request_http(
+pub async fn time_stamp_request_http(
     url: impl IntoUrl,
     request: &TimeStampReq,
 ) -> Result<TimeStampResponse, TimeStampError> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
 
     let mut body = Vec::<u8>::new();
     request
@@ -168,7 +168,8 @@ pub fn time_stamp_request_http(
         .post(url)
         .header("Content-Type", HTTP_CONTENT_TYPE_REQUEST)
         .body(body)
-        .send()?;
+        .send()
+        .await?;
 
     if response.status().is_success()
         && response.headers().get("Content-Type")
@@ -176,7 +177,7 @@ pub fn time_stamp_request_http(
                 HTTP_CONTENT_TYPE_RESPONSE,
             ))
     {
-        let response_bytes = response.bytes()?;
+        let response_bytes = response.bytes().await?;
 
         let res = TimeStampResponse(Constructed::decode(
             response_bytes.as_ref(),
@@ -203,7 +204,7 @@ pub fn time_stamp_request_http(
 ///
 /// This is a wrapper around [time_stamp_request_http] that constructs the low-level
 /// ASN.1 request object with reasonable defaults.
-pub fn time_stamp_message_http(
+pub async fn time_stamp_message_http(
     url: impl IntoUrl,
     message: &[u8],
     digest_algorithm: DigestAlgorithm,
@@ -229,7 +230,7 @@ pub fn time_stamp_message_http(
         extensions: None,
     };
 
-    time_stamp_request_http(url, &request)
+    time_stamp_request_http(url, &request).await
 }
 
 #[cfg(test)]
@@ -253,11 +254,12 @@ mod test {
         }
     }
 
-    #[test]
-    fn simple_request() {
+    #[tokio::test]
+    async fn simple_request() {
         let message = b"hello, world";
 
         let res = time_stamp_message_http(DIGICERT_TIMESTAMP_URL, message, DigestAlgorithm::Sha256)
+            .await
             .unwrap();
 
         let signed_data = res.signed_data().unwrap().unwrap();
