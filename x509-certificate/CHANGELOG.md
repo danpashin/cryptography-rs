@@ -6,6 +6,15 @@
 
 Released on ReleaseDate.
 
+## 0.24.0
+
+Released on 2024-11-02.
+
+* MSRV 1.65 -> 1.75.
+* `bytes` 1.5 -> 1.8.
+* `signature` 2.1 -> 2.2.
+* `zeroize` 1.6 -> 1.8.
+
 ## 0.23.1
 
 Released on 2023-11-16.

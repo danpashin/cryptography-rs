@@ -72,17 +72,21 @@ structures referenced by RFC5652 and taught them to serialize using `bcder`.
 */
 
 pub mod asn1;
+
+#[cfg(feature = "http")]
 mod signing;
+#[cfg(feature = "http")]
 mod time_stamp_protocol;
 
+#[cfg(feature = "http")]
 pub use {
-    bcder::Oid,
-    bytes::Bytes,
     signing::{SignedDataBuilder, SignerBuilder},
     time_stamp_protocol::{
         time_stamp_message_http, time_stamp_request_http, TimeStampError, TimeStampResponse,
     },
 };
+
+pub use {bcder::Oid, bytes::Bytes};
 
 use {
     crate::asn1::{
@@ -171,6 +175,7 @@ pub enum CmsError {
     /// Error occurred parsing a distinguished name field in a certificate.
     DistinguishedNameParseError,
 
+    #[cfg(feature = "http")]
     /// Error occurred in Time-Stamp Protocol.
     TimeStampProtocol(TimeStampError),
 
@@ -228,6 +233,7 @@ impl Display for CmsError {
             Self::DistinguishedNameParseError => {
                 f.write_str("could not parse distinguished name data")
             }
+            #[cfg(feature = "http")]
             Self::TimeStampProtocol(e) => {
                 f.write_fmt(format_args!("Time-Stamp Protocol error: {}", e))
             }
@@ -256,6 +262,7 @@ impl From<PemError> for CmsError {
     }
 }
 
+#[cfg(feature = "http")]
 impl From<TimeStampError> for CmsError {
     fn from(e: TimeStampError) -> Self {
         Self::TimeStampProtocol(e)
@@ -882,7 +889,7 @@ impl TryFrom<&crate::asn1::rfc5652::SignerInfo> for SignerInfo {
 
             let content_type = content_type
                 .values
-                .get(0)
+                .first()
                 .unwrap()
                 .deref()
                 .clone()
@@ -902,7 +909,7 @@ impl TryFrom<&crate::asn1::rfc5652::SignerInfo> for SignerInfo {
 
             let message_digest = message_digest
                 .values
-                .get(0)
+                .first()
                 .unwrap()
                 .deref()
                 .clone()
@@ -921,7 +928,7 @@ impl TryFrom<&crate::asn1::rfc5652::SignerInfo> for SignerInfo {
                     } else {
                         let time = attr
                             .values
-                            .get(0)
+                            .first()
                             .unwrap()
                             .deref()
                             .clone()
@@ -946,27 +953,29 @@ impl TryFrom<&crate::asn1::rfc5652::SignerInfo> for SignerInfo {
 
         let digested_signed_attributes_data = signer_info.signed_attributes_digested_content()?;
 
-        let unsigned_attributes =
-            if let Some(attributes) = &signer_info.unsigned_attributes {
-                let time_stamp_token =
-                    attributes
-                        .iter()
-                        .find(|attr| attr.typ == OID_TIME_STAMP_TOKEN)
-                        .map(|attr| {
-                            if attr.values.len() != 1 {
-                                Err(CmsError::MalformedUnsignedAttributeTimeStampToken)
-                            } else {
-                                Ok(attr.values.get(0).unwrap().deref().clone().decode(|cons| {
-                                    crate::asn1::rfc5652::SignedData::decode(cons)
-                                })?)
-                            }
-                        })
-                        .transpose()?;
+        let unsigned_attributes = if let Some(attributes) = &signer_info.unsigned_attributes {
+            let time_stamp_token = attributes
+                .iter()
+                .find(|attr| attr.typ == OID_TIME_STAMP_TOKEN)
+                .map(|attr| {
+                    if attr.values.len() != 1 {
+                        Err(CmsError::MalformedUnsignedAttributeTimeStampToken)
+                    } else {
+                        Ok(attr
+                            .values
+                            .first()
+                            .unwrap()
+                            .deref()
+                            .clone()
+                            .decode(crate::asn1::rfc5652::SignedData::decode)?)
+                    }
+                })
+                .transpose()?;
 
-                Some(UnsignedAttributes { time_stamp_token })
-            } else {
-                None
-            };
+            Some(UnsignedAttributes { time_stamp_token })
+        } else {
+            None
+        };
 
         Ok(SignerInfo {
             issuer,

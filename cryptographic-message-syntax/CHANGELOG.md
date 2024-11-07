@@ -6,6 +6,19 @@
 
 Released on ReleaseDate.
 
+## 0.27.0
+
+Released on 2024-11-02.
+
+* MSRV 1.65 -> 1.75.
+* The crate now has an `http` feature to control availability of features making
+  HTTP requests (notably time-stamp protocol support). Disabling the feature
+  removes the dependency on `reqwest`, which slims down the dependency tree
+  significantly. (#21)
+* `bytes` 1.5 -> 1.8.
+* `reqwest` 0.11 -> 0.12.
+* `signature` 2.1 -> 2.2.
+
 ## 0.26.0
 
 Released on 2023-11-07.

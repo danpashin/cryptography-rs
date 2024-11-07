@@ -33,10 +33,9 @@ use {
     pgp::{
         crypto::hash::{HashAlgorithm, Hasher},
         packet::{Packet, SignatureConfig, SignatureType, Subpacket, SubpacketData},
-        types::{KeyVersion, PublicKeyTrait, SecretKeyTrait},
+        types::{PublicKeyTrait, SecretKeyTrait},
         Signature,
     },
-    smallvec::SmallVec,
     std::{
         cmp::Ordering,
         collections::HashMap,
@@ -123,6 +122,17 @@ impl Hasher for CleartextHasher {
             CleartextHasher::Sha384(digest) => digest.finalize().to_vec(),
             CleartextHasher::Sha512(digest) => digest.finalize().to_vec(),
         }
+    }
+
+    fn finish_reset_into(&mut self, out: &mut [u8]) {
+        let res = match self {
+            Self::Md5(ref mut digest) => digest.finalize_reset().to_vec(),
+            CleartextHasher::Sha1(ref mut digest) => digest.finalize_reset().to_vec(),
+            CleartextHasher::Sha256(ref mut digest) => digest.finalize_reset().to_vec(),
+            CleartextHasher::Sha384(ref mut digest) => digest.finalize_reset().to_vec(),
+            CleartextHasher::Sha512(ref mut digest) => digest.finalize_reset().to_vec(),
+        };
+        out.copy_from_slice(&res.as_slice()[..out.len()]);
     }
 }
 
@@ -249,7 +259,7 @@ impl<R: BufRead> Read for CleartextSignatureReader<R> {
                                 };
 
                                 self.hashers
-                                    .entry(hasher.algorithm() as u8)
+                                    .entry(u8::from(hasher.algorithm()))
                                     .or_insert(hasher);
                             }
                         }
@@ -390,7 +400,9 @@ impl<R: BufRead> Read for CleartextSignatureReader<R> {
                     self.reader.read_to_end(&mut buffer)?;
 
                     let mut dearmor = pgp::armor::Dearmor::new(io::Cursor::new(buffer));
-                    dearmor.read_header()?;
+                    dearmor
+                        .read_header()
+                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 
                     if !matches!(dearmor.typ, Some(pgp::armor::BlockType::Signature)) {
                         return Err(io::Error::new(
@@ -462,13 +474,9 @@ impl CleartextSignatures {
         &'slf self,
         key: &'key impl PublicKeyTrait,
     ) -> impl Iterator<Item = &'slf Signature> {
-        self.signatures.iter().filter(|sig| {
-            if let Some(issuer) = sig.issuer() {
-                &key.key_id() == issuer
-            } else {
-                false
-            }
-        })
+        self.signatures
+            .iter()
+            .filter(|sig| sig.issuer().iter().any(|issuer| &key.key_id() == *issuer))
     }
 
     /// Verify a signature made from a known key.
@@ -494,7 +502,7 @@ impl CleartextSignatures {
             // fed the cleartext) to verify the signature. Fortunately we can clone hashers.
             let mut hasher = Box::new(
                 self.hashers
-                    .get(&(sig.config.hash_alg as u8))
+                    .get(&(u8::from(sig.config.hash_alg)))
                     .ok_or_else(|| {
                         pgp::errors::Error::Message(format!(
                             "could not find hasher matching signature hash algorithm ({:?})",
@@ -505,7 +513,7 @@ impl CleartextSignatures {
             );
 
             let len = sig.config.hash_signature_data(&mut *hasher)?;
-            hasher.update(&sig.config.trailer(len));
+            hasher.update(&sig.config.trailer(len)?);
 
             let digest = hasher.finish();
 
@@ -597,31 +605,29 @@ where
     // TODO these sets should be audited by someone who knows PGP.
 
     let hashed_subpackets = vec![
-        Subpacket::regular(SubpacketData::IssuerFingerprint(
-            KeyVersion::V4,
-            SmallVec::from_slice(&key.fingerprint()),
-        )),
+        Subpacket::regular(SubpacketData::IssuerFingerprint(key.fingerprint())),
         Subpacket::regular(SubpacketData::SignatureCreationTime(
             chrono::Utc::now().trunc_subsecs(0),
         )),
     ];
     let unhashed_subpackets = vec![Subpacket::regular(SubpacketData::Issuer(key.key_id()))];
 
-    let config = SignatureConfig::new_v4(
-        Default::default(),
-        SignatureType::Text,
-        key.algorithm(),
-        hash_algorithm,
-        hashed_subpackets,
-        unhashed_subpackets,
-    );
+    let mut config = SignatureConfig::v4(SignatureType::Text, key.algorithm(), hash_algorithm);
+    config.hashed_subpackets = hashed_subpackets;
+    config.unhashed_subpackets = unhashed_subpackets;
 
     let signature = config.sign(key, key_pw, Cursor::new(cleartext))?;
 
     // The armoring consists of a signature packet.
     let packet = Packet::Signature(signature);
     let mut writer = Cursor::new(Vec::<u8>::new());
-    pgp::armor::write(&packet, pgp::armor::BlockType::Signature, &mut writer, None)?;
+    pgp::armor::write(
+        &packet,
+        pgp::armor::BlockType::Signature,
+        &mut writer,
+        None,
+        true,
+    )?;
 
     // The armoring should always produce valid UTF-8. But we are careful.
     let signature_string = String::from_utf8(writer.into_inner())

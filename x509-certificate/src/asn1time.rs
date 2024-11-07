@@ -307,9 +307,9 @@ impl GeneralizedTime {
     }
 }
 
-impl ToString for GeneralizedTime {
-    fn to_string(&self) -> String {
-        format!(
+impl Display for GeneralizedTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = format!(
             "{}{}",
             self.time.format(if self.fractional_seconds {
                 "%Y%m%d%H%M%S%.f"
@@ -317,7 +317,8 @@ impl ToString for GeneralizedTime {
                 "%Y%m%d%H%M%S"
             }),
             self.timezone
-        )
+        );
+        write!(f, "{}", str)
     }
 }
 
@@ -433,9 +434,9 @@ impl UtcTime {
     }
 }
 
-impl ToString for UtcTime {
-    fn to_string(&self) -> String {
-        format!(
+impl Display for UtcTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = format!(
             "{:02}{:02}{:02}{:02}{:02}{:02}Z",
             self.0.year() % 100,
             self.0.month(),
@@ -443,7 +444,8 @@ impl ToString for UtcTime {
             self.0.hour(),
             self.0.minute(),
             self.0.second()
-        )
+        );
+        write!(f, "{}", str)
     }
 }
 
@@ -474,21 +476,27 @@ mod test {
     #[test]
     fn generalized_time() -> Result<(), ContentError> {
         let gt = GeneralizedTime {
-            time: chrono::NaiveDateTime::from_timestamp_opt(1643510772, 0).unwrap(),
+            time: chrono::DateTime::from_timestamp(1643510772, 0)
+                .unwrap()
+                .naive_utc(),
             fractional_seconds: false,
             timezone: Zone::Utc,
         };
         assert_eq!(gt.to_string(), "20220130024612Z");
 
         let gt = GeneralizedTime {
-            time: chrono::NaiveDateTime::from_timestamp_opt(1643510772, 0).unwrap(),
+            time: chrono::DateTime::from_timestamp(1643510772, 0)
+                .unwrap()
+                .naive_utc(),
             fractional_seconds: false,
             timezone: Zone::Offset(chrono::FixedOffset::east_opt(3600).unwrap()),
         };
         assert_eq!(gt.to_string(), "20220130024612+0100");
 
         let gt = GeneralizedTime {
-            time: chrono::NaiveDateTime::from_timestamp_opt(1643510772, 0).unwrap(),
+            time: chrono::DateTime::from_timestamp(1643510772, 0)
+                .unwrap()
+                .naive_utc(),
             fractional_seconds: false,
             timezone: Zone::Offset(chrono::FixedOffset::west_opt(7200).unwrap()),
         };
